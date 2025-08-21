@@ -1,0 +1,44 @@
+name: Cloudflare IP Monitor
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # 每6小时执行
+
+jobs:
+  ip-monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 lxml pandas
+
+      - name: Scrape & Process IPs
+        env:
+          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/ip_scraper.py --sources ${{ secrets.SOURCES }} --output raw_ips.txt
+          python3 scripts/ip_ranker.py raw_ips.txt ranked_ips.txt
+          python3 scripts/report_generator.py ranked_ips.txt IP_REPORT.txt
+
+      - name: Update Documentation
+        run: |
+          echo "## Cloudflare优选IP列表" >> README.md
+          echo "" >> README.md
+          echo "更新时间: $(date +'%Y-%m-%d %H:%M')" >> README.md
+          echo "" >> README.md
+          echo "总IP数量: $(wc -l < ranked_ips.txt)" >> README.md
+          echo "" >> README.md
+          echo "```txt" >> README.md
+          cat IP_REPORT.txt >> README.md
+          echo "```" >> README.md
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add .
+          git commit -m "Update IP list: $(date +'%Y-%m-%d %H:%M')"
+          git push
