@@ -65,9 +65,6 @@ def main():
     
     # 写入文件
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write(f"# Cloudflare优选IP列表 | 更新时间: {timestamp}\n")
-        f.write(f"# 来源: {', '.join(TARGETS)}\n")
-        f.write(f"# 总IP数量: {len(all_ips)}\n\n")
         f.writelines(ip + "\n" for ip in sorted(all_ips))
     
     print("\n" + "="*50)
