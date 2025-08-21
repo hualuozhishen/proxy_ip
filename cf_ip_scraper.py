@@ -1,79 +1,90 @@
-import os
 import requests
 import re
-import random
+from bs4 import BeautifulSoup
+import datetime
 import time
-from datetime import datetime
+import os
 
-# 目标网站列表
-TARGETS = [
+# 配置参数
+SOURCES = [
     "https://www.wetest.vip/page/cloudflare/address_v4.html",
     "https://ip.164746.xyz",
     "https://cf.090227.xyz",
     "https://stock.hostmonit.com/CloudFlareYes"
 ]
 
-# 增强型User-Agent池
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
-    "Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36"
-]
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+}
 
-# 严格IP匹配正则
-IP_PATTERN = r'\b(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\b'
+def get_wetest_ips(url):
+    """ 解析wetest.vip的表格数据 """
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        return [td.text.strip() for td in soup.select('table td:nth-child(1)')]
+    except Exception as e:
+        print(f"Error on {url}: {str(e)}")
+        return []
 
-def extract_ips(html):
-    """从HTML中提取有效IPv4地址"""
-    return set(re.findall(IP_PATTERN, html))
+def get_text_ips(url):
+    """ 解析纯文本IP列表 """
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=10)
+        return re.findall(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', res.text)
+    except Exception as e:
+        print(f"Error on {url}: {str(e)}")
+        return []
 
-def fetch_with_retry(url, retries=3):
-    """带重试机制的请求函数"""
-    for attempt in range(retries):
-        try:
-            headers = {'User-Agent': random.choice(USER_AGENTS)}
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            return response.text
-        except Exception as e:
-            if attempt < retries - 1:
-                delay = 2 ** attempt  # 指数退避
-                print(f"⚠️ 重试中({attempt+1}/{retries}): {str(e)} | 等待{delay}秒")
-                time.sleep(delay)
-            else:
-                print(f"🚨 最终失败: {str(e)}")
-                return None
+def test_latency(ip, port=443):
+    """ 测试IP延迟 (单位：毫秒) """
+    start = time.time()
+    try:
+        requests.get(f'https://{ip}', headers=HEADERS, timeout=3, verify=False)
+        return int((time.time() - start) * 1000)
+    except:
+        return 9999  # 超时标记
 
-def main():
-    all_ips = set()
-    print("="*50)
-    print(f"🚀 开始抓取 {len(TARGETS)} 个源站 | {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+def generate_report(ip_list):
+    """ 生成README内容 """
+    timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+    report = [
+        "# Cloudflare优选IP列表 | 更新时间: {}\n".format(timestamp),
+        "# 来源: {}\n".format(", ".join(SOURCES)),
+        "# 总IP数量: {}\n".format(len(ip_list)),
+        "\n## 五星推荐 IP (延迟 < 150ms)\n"
+    ]
     
-    for idx, url in enumerate(TARGETS):
-        print(f"\n🔍 [{idx+1}/{len(TARGETS)}] 抓取 {url}")
-        html = fetch_with_retry(url)
-        if html:
-            ips = extract_ips(html)
-            print(f"✅ 发现 {len(ips)} 个有效IP")
-            all_ips.update(ips)
-        time.sleep(random.uniform(1, 2))  # 请求间隔
+    # 添加延迟测试和分级
+    fast_ips = []
+    for ip in ip_list:
+        latency = test_latency(ip)
+        if latency < 150:  # 五星标准
+            fast_ips.append((ip, latency))
     
-    # 获取仓库绝对路径
-    repo_path = os.getcwd()
-    output_file = os.path.join(repo_path, "cf_ips.txt")
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    # 按延迟排序
+    fast_ips.sort(key=lambda x: x[1])
     
-    # 写入文件
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(f"# Cloudflare优选IP列表 | 更新时间: {timestamp}\n")
-        f.write(f"# 来源: {', '.join(TARGETS)}\n")
-        f.write(f"# 总IP数量: {len(all_ips)}\n\n")
-        f.writelines(ip + "\n" for ip in sorted(all_ips))
+    # 只保留IP地址
+    for ip, _ in fast_ips:
+        report.append(ip)
     
-    print("\n" + "="*50)
-    print(f"🎉 完成！共获取 {len(all_ips)} 个唯一IP")
-    print(f"📁 文件路径: {output_file}")
-    print("="*50)
+    return "\n".join(report)
 
 if __name__ == "__main__":
-    main()
+    all_ips = []
+    for url in SOURCES:
+        if "wetest" in url:
+            all_ips += get_wetest_ips(url)
+        else:
+            all_ips += get_text_ips(url)
+    
+    # 去重
+    unique_ips = list(set(all_ips))
+    
+    # 生成报告
+    report_content = generate_report(unique_ips)
+    
+    # 保存到文件
+    with open('README.md', 'w') as f:
+        f.write(report_content)
