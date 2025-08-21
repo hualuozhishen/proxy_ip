@@ -1,39 +1,50 @@
-name: Update Cloudflare IPs
+name: Cloudflare IP Auto-Update
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # 每6小时运行
+    - cron: '0 */6 * * *'  # UTC时间每6小时
   workflow_dispatch:
 
 jobs:
-  scrape:
-    runs-on: ubuntu-latest
+  update:
+    runs-on: ubuntu-22.04  # 锁定系统版本[9](@ref)
+    timeout-minutes: 10    # 防止僵尸任务
+    
     steps:
-      - name: 🛒 Checkout code
+      - name: 🛒 Checkout
         uses: actions/checkout@v4
         with:
-          persist-credentials: false  # 解决权限问题
-
-      - name: 🐍 Set up Python 3.10
+          persist-credentials: false  # 解决权限冲突
+        
+      - name: 🐍 Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
-      - name: 📦 Install dependencies
-        run: pip install requests beautifulsoup4
-
-      - name: 🚀 Run scraper
-        run: python cf-ip-scraper.py
-
-      - name: 💾 Commit changes
-        if: steps.git_diff.outputs.change_found == 'true'
+          
+      - name: 📦 依赖缓存加速
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('requirements.txt') }}
+          
+      - name: ⚙️ 安装依赖
+        run: pip install -r requirements.txt
+        
+      - name: 🚀 运行爬虫
+        run: python cf_ip_scraper.py
+        env:
+          REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt  # 解决SSL错误
+        
+      - name: 🔍 变更检测
+        id: check_change
         run: |
-          git config user.name "GitHub Action"
-          git config user.email "action@github.com"
+          git diff --quiet README.md || echo "changed=true" >> $GITHUB_OUTPUT
+        
+      - name: 💾 提交更新
+        if: steps.check_change.outputs.changed == 'true'
+        run: |
+          git config user.name "GitHub Bot"
+          git config user.email "github-actions@users.noreply.github.com"
           git add README.md
-          git commit -m "Auto-update Cloudflare IPs"
+          git commit -m "Auto-Update Cloudflare IPs"
           git push
-
-      - name: 🔍 Check changes
-        id: git_diff
-        run: echo "change_found=$(git status --porcelain | grep -q 'README.md' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
