@@ -1,40 +1,50 @@
-name: Cloudflare IP AutoUpdater
+name: Cloudflare IP AutoScraper
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # 每6小时运行
-  workflow_dispatch:        # 手动触发
+    - cron: '0 */6 * * *'  # 每6小时运行一次（UTC时间）
+  workflow_dispatch:        # 支持手动触发
 
 jobs:
-  scrape:
+  scrape-ips:
     runs-on: ubuntu-latest
     steps:
-      - name: 🛒 检出仓库 (含写权限)
+      # 1. 检出仓库（关键权限配置）
+      - name: 🛒 检出仓库
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}  # 关键权限[3](@ref)
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # 获取完整提交历史
 
-      - name: 🐍 设置Python
+      # 2. 设置Python环境
+      - name: 🐍 设置Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
+      # 3. 安装依赖
       - name: 📦 安装依赖
         run: pip install requests
 
-      - name: 🕷️ 运行爬虫
+      # 4. 运行爬虫脚本
+      - name: 🕷️ 运行IP抓取脚本
         run: python cf_ip_scraper.py
 
-      - name: 🔍 检测变更
-        id: check_diff
+      # 5. 验证文件生成
+      - name: 🔍 验证输出文件
         run: |
-          git diff --quiet cf_ips.txt || echo "changed=true" >> $GITHUB_OUTPUT
+          echo "当前目录内容:"
+          ls -la
+          echo "文件头部内容:"
+          head -n 5 cf_ips.txt
 
-      - name: ⬆️ 提交更新 (仅当有变更)
-        if: steps.check_diff.outputs.changed == 'true'
+      # 6. 提交变更（智能检测）
+      - name: ⬆️ 提交更新
         run: |
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@users.noreply.github.com"
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@users.noreply.github.com"
+          
+          # 仅当文件有变化时提交
           git add cf_ips.txt
-          git commit -m "AutoUpdate: $(date +'%Y-%m-%d %H:%M')"
+          git diff-index --quiet HEAD || git commit -m "自动更新优选IP列表 $(date +'%Y-%m-%d %H:%M')"
           git push
