@@ -1,4 +1,4 @@
-每12小时自动抓取
+每6小时自动抓取
 
 https://www.wetest.vip/page/cloudflare/address_v4.html
 
