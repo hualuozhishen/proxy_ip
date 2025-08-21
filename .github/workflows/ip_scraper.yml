@@ -1,0 +1,50 @@
+name: Cloudflare IP AutoScraper
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # 每6小时运行一次（UTC时间）
+  workflow_dispatch:        # 支持手动触发
+
+jobs:
+  scrape-ips:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 检出仓库（关键权限配置）
+      - name: 🛒 检出仓库
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # 获取完整提交历史
+
+      # 2. 设置Python环境
+      - name: 🐍 设置Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. 安装依赖
+      - name: 📦 安装依赖
+        run: pip install requests
+
+      # 4. 运行爬虫脚本
+      - name: 🕷️ 运行IP抓取脚本
+        run: python cf_ip_scraper.py
+
+      # 5. 验证文件生成
+      - name: 🔍 验证输出文件
+        run: |
+          echo "当前目录内容:"
+          ls -la
+          echo "文件头部内容:"
+          head -n 5 cf_ips.txt
+
+      # 6. 提交变更（智能检测）
+      - name: ⬆️ 提交更新
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@users.noreply.github.com"
+          
+          # 仅当文件有变化时提交
+          git add cf_ips.txt
+          git diff-index --quiet HEAD || git commit -m "自动更新优选IP列表 $(date +'%Y-%m-%d %H:%M')"
+          git push
