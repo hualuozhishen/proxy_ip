@@ -1,0 +1,57 @@
+name: Cloudflare IP Monitor
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # 每6小时自动执行
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  ip-monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Scrape IP data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python -m src.scraper.cloudflare_scraper \
+            --sources ${{ secrets.SOURCES }} \
+            --output data/raw_ips.txt
+
+      - name: Rank IP addresses
+        run: |
+          python -m src.ranker.ip_ranker \
+            data/raw_ips.txt \
+            data/ranked_ips.txt
+
+      - name: Generate report
+        run: |
+          python -m src.reporter.text_reporter \
+            data/ranked_ips.txt \
+            docs/IP_REPORT.txt
+
+      - name: Update documentation
+        run: |
+          echo "## Cloudflare优选IP列表" >> docs/README.md
+          echo "" >> docs/README.md
+          echo "更新时间: $(date +'%Y-%m-%d %H:%M')" >> docs/README.md
+          echo "" >> docs/README.md
+          echo "总IP数量: $(wc -l < data/ranked_ips.txt)" >> docs/README.md
+          echo "" >> docs/README.md
+          echo "```txt" >> docs/README.md
+          cat docs/IP_REPORT.txt >> docs/README.md
+          echo "```" >> docs/README.md
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add .
+          git commit -m "Update IP list: $(date +'%Y-%m-%d %H:%M')"
+          git push
