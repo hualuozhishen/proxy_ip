@@ -1,0 +1,40 @@
+name: Cloudflare IP Auto-Update
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+permissions: contents: write  # 核心权限开关[1,4](@ref)
+jobs:
+  update:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install beautifulsoup4 requests
+
+      - name: Run scraper
+        run: python cf_ip_scraper.py
+
+      - name: Check changes
+        id: check_change
+        run: echo "changed=$(git diff --exit-code README.md >/dev/null || echo 'true')" >> $GITHUB_OUTPUT
+
+      - name: Commit changes
+        if: steps.check_change.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull origin main
+          git add README.md
+          git commit -m "Auto-Update Cloudflare IPs"
+          git push origin main
